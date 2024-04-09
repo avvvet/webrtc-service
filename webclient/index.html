@@ -98,13 +98,18 @@
     }
 
     function handleSDPAnswer(sdpAnswer) {
-      pc.setRemoteDescription(sdpAnswer)
-          .then(() => {
-              console.log("Remote SDP Answer set successfully.");
-          })
-          .catch(error => {
-              console.error("Error setting remote SDP Answer:", error);
-          });
+        if (pc.remoteDescription) {
+            console.log("Remote description already set. Ignoring SDP answer.");
+            return;
+        }
+
+        pc.setRemoteDescription(sdpAnswer)
+            .then(() => {
+                console.log("Remote SDP Answer set successfully.");
+            })
+            .catch(error => {
+                console.error("Error setting remote SDP Answer:", error);
+            });
     }
 
     function handleICECandidate(iceCandidate) {

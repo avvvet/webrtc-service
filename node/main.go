@@ -9,8 +9,6 @@ import (
 	"sync"
 
 	"github.com/nats-io/nats.go"
-	"github.com/pion/interceptor"
-	"github.com/pion/interceptor/pkg/intervalpli"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -197,51 +195,10 @@ func (n *RouterNode) NatCon() {
 }
 
 func (n *RouterNode) PeerConnection() {
-	m := &webrtc.MediaEngine{}
-
-	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000, Channels: 0, SDPFmtpLine: "", RTCPFeedback: nil},
-		PayloadType:        96,
-	}, webrtc.RTPCodecTypeVideo); err != nil {
-		panic(err)
-	}
-
-	i := &interceptor.Registry{}
-
-	if err := webrtc.RegisterDefaultInterceptors(m, i); err != nil {
-		panic(err)
-	}
-
-	intervalPliFactory, err := intervalpli.NewReceiverInterceptor()
+	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
 		panic(err)
 	}
-	i.Add(intervalPliFactory)
-
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
-
-	config := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
-			{
-				URLs:       []string{"turn:turn.webrtcwire.online"},
-				Username:   "webrtcwire",
-				Credential: "yellowgreen",
-			},
-		},
-	}
-
-	peerConnection, err := api.NewPeerConnection(config)
-	if err != nil {
-		panic(err)
-	}
-	// defer func() {
-	// 	if cErr := peerConnection.Close(); cErr != nil {
-	// 		fmt.Printf("cannot close peerConnection: %v\n", cErr)
-	// 	}
-	// }()
 
 	n.peerConnection = peerConnection
 }

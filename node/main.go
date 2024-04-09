@@ -74,9 +74,6 @@ func main() {
 	sub, err := n.nat.Subscribe(subject, func(msg *nats.Msg) {
 		go func() {
 			n.AddSdp(msg)
-			if err := msg.Respond(nil); err != nil {
-				log.Printf("Error responding to message: %s", err)
-			}
 		}()
 	})
 	if err != nil {
@@ -89,9 +86,6 @@ func main() {
 	sub, err = n.nat.Subscribe(subject, func(msg *nats.Msg) {
 		go func() {
 			n.AddCandidate(msg)
-			if err := msg.Respond(nil); err != nil {
-				log.Printf("Error responding to message: %s", err)
-			}
 		}()
 	})
 	if err != nil {

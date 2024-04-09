@@ -123,5 +123,12 @@
             });
     }  
 
+    function displayMessage(message) {
+        const messagesDiv = document.getElementById("messages");
+        const messageElement = document.createElement("p");
+        messageElement.textContent = message;
+        messagesDiv.appendChild(messageElement);
+    }
+
   </script>
 </html>

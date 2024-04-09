@@ -201,65 +201,6 @@ func (n *RouterNode) AddSdp(msg *nats.Msg) {
 	log.Println("AddSdp process completed")
 }
 
-func (n *RouterNode) AddSdpOld(msg *nats.Msg) {
-	sdp := webrtc.SessionDescription{}
-
-	err := json.Unmarshal(msg.Data, &sdp)
-	if err != nil {
-		log.Printf("Error unmarshal %s", err)
-	}
-
-	if err := n.peerConnection.SetRemoteDescription(sdp); err != nil {
-		panic(err)
-	}
-
-	// Create an answer to send to the other process
-	answer, err := n.peerConnection.CreateAnswer(nil)
-	if err != nil {
-		panic(err)
-	}
-
-	// Send the answer to signaling -> web client
-	payload, err := json.Marshal(answer)
-	if err != nil {
-		panic(err)
-	}
-
-	subject := "to.client.a.send.sdp.answer"
-	err = n.nat.Publish(subject, payload)
-	if err != nil {
-		log.Printf("Error publishing subject %s: %s", subject, err)
-		// Handle error
-	}
-
-	// Sets the LocalDescription, and starts our UDP listeners
-	err = n.peerConnection.SetLocalDescription(answer)
-	if err != nil {
-		panic(err)
-	}
-
-	// send pending candidates
-	subject = "to.client.a.send.candidate"
-	n.candidatesMux.Lock()
-	for _, c := range n.pendingCandidates {
-		log.Println("send peding candidate ")
-		payload, err := json.Marshal(c)
-		if err != nil {
-			log.Printf("Error%s", err)
-		}
-
-		err = n.nat.Publish(subject, payload)
-		if err != nil {
-			log.Printf("Error publishing subject %s: %s", subject, err)
-			// Handle error
-		}
-
-	}
-	n.candidatesMux.Unlock()
-
-	log.Println("add sdp process completed")
-}
-
 func (n *RouterNode) NatCon() {
 	url := os.Getenv("NATS_URL")
 	if url == "" {

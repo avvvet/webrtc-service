@@ -77,7 +77,8 @@ func (s *Signaling) handleWs(w http.ResponseWriter, r *http.Request) {
 	defer delete(s.activeConnections, conn)
 
 	// Create channels to signal completion of subscription callbacks
-	doneCh := make(chan struct{}, 2)
+	doneChSDP := make(chan struct{})
+	doneChICE := make(chan struct{})
 
 	// Subscribe to listen for SDP answer
 	go func() {
@@ -85,13 +86,13 @@ func (s *Signaling) handleWs(w http.ResponseWriter, r *http.Request) {
 		sub, err := s.nat.Subscribe(subject, func(msg *nats.Msg) {
 			log.Printf("subscribe --------------------> %s/n", subject)
 			s.ForwardAnswer(conn, msg)
-			doneCh <- struct{}{} // Signal completion
+			doneChSDP <- struct{}{} // Signal completion
 		})
 		if err != nil {
 			log.Printf("unable to create subscription %s : %s", subject, err)
 		}
 		defer sub.Unsubscribe()
-		<-doneCh // Wait for completion
+		<-doneChSDP // Wait for completion
 	}()
 
 	// Subscribe to listen for ICE candidate
@@ -100,13 +101,13 @@ func (s *Signaling) handleWs(w http.ResponseWriter, r *http.Request) {
 		sub, err := s.nat.Subscribe(subject, func(msg *nats.Msg) {
 			fmt.Printf("ice received : %+v", string(msg.Data))
 			s.ForwardCandidate(conn, msg)
-			doneCh <- struct{}{} // Signal completion
+			doneChICE <- struct{}{} // Signal completion
 		})
 		if err != nil {
 			log.Printf("unable to create subscription %s : %s", subject, err)
 		}
 		defer sub.Unsubscribe()
-		<-doneCh // Wait for completion
+		<-doneChICE // Wait for completion
 	}()
 
 	// Read messages from WebSocket connection

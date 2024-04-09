@@ -21,6 +21,9 @@ type RouterNode struct {
 
 	pendingCandidates []*webrtc.ICECandidate
 	candidatesMux     sync.Mutex
+
+	remotePendingCandidates []webrtc.ICECandidateInit
+	remoteCandidatesMux     sync.Mutex
 }
 
 func main() {
@@ -90,6 +93,7 @@ func main() {
 	select {}
 }
 
+// important remote candidates will arrive before sdp offer so store in pending
 func (n *RouterNode) AddCandidate(msg *nats.Msg) {
 	candidate := webrtc.ICECandidateInit{}
 	err := json.Unmarshal(msg.Data, &candidate)
@@ -97,6 +101,28 @@ func (n *RouterNode) AddCandidate(msg *nats.Msg) {
 		log.Printf("Error unmarshal %s", err)
 	}
 
+	//* important
+	desc := n.peerConnection.RemoteDescription()
+	if desc == nil {
+		n.remotePendingCandidates = append(n.remotePendingCandidates, candidate)
+		return
+	}
+
+	//check if we have early arrived candidats
+	if len(n.remotePendingCandidates) > 0 {
+		// add it
+		n.remoteCandidatesMux.Lock()
+		for _, ci := range n.remotePendingCandidates {
+			err = n.peerConnection.AddICECandidate(ci)
+			if err != nil {
+				log.Printf("Error adding candidate %s", err)
+			}
+
+		}
+		n.remoteCandidatesMux.Unlock()
+	}
+
+	// these candidate arrived on time (after the sdp offer)
 	err = n.peerConnection.AddICECandidate(candidate)
 	if err != nil {
 		log.Printf("Error adding candidate %s", err)

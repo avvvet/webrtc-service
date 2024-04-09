@@ -62,6 +62,7 @@ func (s *Signaling) ClientSendCandidate(ice webrtc.ICECandidateInit) {
 }
 
 func (s *Signaling) handleWs(w http.ResponseWriter, r *http.Request) {
+	log.Println(">>>>>>>>>>>>>>>> need to be called once ")
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
@@ -78,7 +79,7 @@ func (s *Signaling) handleWs(w http.ResponseWriter, r *http.Request) {
 	//signal subscripes to listen sdp answer
 	subject := "to.client.a.send.sdp.answer"
 	sub, err := s.nat.Subscribe(subject, func(msg *nats.Msg) {
-		log.Printf("subscribe -> %s", subject)
+		log.Printf("subscribe --------------------> %s/n", subject)
 		s.ForwardAnswer(conn, msg)
 	})
 	if err != nil {
@@ -177,7 +178,6 @@ func main() {
 
 func (s *Signaling) ForwardAnswer(conn *websocket.Conn, msg *nats.Msg) {
 	//forward to client
-	log.Printf("ForwardAsnswer called ->>>>>>>>>>>>")
 	s.sendMessage(conn, msg.Data)
 }
 

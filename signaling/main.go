@@ -249,6 +249,7 @@ func main() {
 
 func (s *Signaling) ForwardAnswer(conn *websocket.Conn, msg *nats.Msg) {
 	//forward to client
+	log.Printf("ForwardAsnswer called ->>>>>>>>>>>>")
 	s.sendMessage(conn, msg.Data)
 }
 

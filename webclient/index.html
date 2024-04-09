@@ -98,6 +98,7 @@
     }
 
     function handleSDPAnswer(sdpAnswer) {
+        console.log("sdp : ", sdpAnswer)
         if (pc.remoteDescription) {
             console.log("Remote description already set. Ignoring SDP answer.");
             return;

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>stream consumer</title>
+</head>
+<body>
+    <h1>stream consumer</h1>
+    <div id="remoteVideos"></div>
+    <hr>
+    <div id="messages"></div>
+
+    <script>
+        const { protocol, hostname, port } = window.location;
+        const wsProtocol = protocol === "https:" ? "wss://" : "ws://";
+        const wsUrl = `${wsProtocol}${hostname}:${port}/ws`;
+        const socket = new WebSocket(wsUrl);
+
+        //const socket = new WebSocket("ws://localhost:3111/ws");
+        
+        var sourceStreamID;
+
+        let pc;
+
+        function setupPeerConnection() {
+            pc = new RTCPeerConnection({
+                iceServers: [
+                    {
+                        urls: 'stun:stun.l.google.com:19302'
+                    },
+                    {
+                        urls: "turn:turn.webrtcwire.online",
+                        username: "webrtcwire",
+                        credential: "yellowgreen",
+                    },
+                ]
+            });
+
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            .then(stream => {
+                stream.getTracks().forEach(track => pc.addTrack(track, stream));
+                
+                pc.createOffer().then(offer => {
+                    console.log("offer created")
+                    pc.setLocalDescription(offer)
+                    console.log("local description set", JSON.stringify(offer))
+                    var message = {
+                        type: "SDPOffer",
+                        data: JSON.stringify(offer)
+                    };
+                    
+                    if (socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify(message));
+                    } else {
+                        console.error("WebSocket connection is not open.");
+                    }
+                })
+            })
+            .catch((err) => {
+                displayMessage(err);
+            });
+
+            pc.ontrack = function(e) {
+                const streamId = e.streams[0].id;
+                console.log(e.streams[0])
+                
+                const el = document.createElement(e.track.kind);
+                el.srcObject = e.streams[0];
+                el.autoplay = true;
+                el.controls = false;
+
+                document.getElementById('remoteVideos').appendChild(el);
+            };
+
+            pc.onicecandidate = e => {
+                if (e.candidate && e.candidate.candidate !== "") {
+                    console.log("candidate :", JSON.stringify(e.candidate))
+                    var message = {
+                        type: "ICECandidate",
+                        data: JSON.stringify(e.candidate)
+                    };
+                    
+                    if (socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify(message));                
+                    } else {
+                        console.error("WebSocket connection is not open.");
+                    }
+                }
+            }
+        }
+
+        socket.onopen = function() {
+            displayMessage("Connected to server.");
+            setupPeerConnection();
+            var message = {
+                type: "InitStreamConsumer",
+                data: JSON.stringify({userId: userId().toString(), sourceStreamID: sourceStreamID})
+            };
+            
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(message));
+            } else {
+                console.error("WebSocket connection is not open.");
+            }
+        };
+
+        socket.onmessage = function(event) {
+            displayMessage(event.data);
+
+            var clientMessage = JSON.parse(event.data);
+
+            if (clientMessage.type === "answer") {
+                handleSDPAnswer(clientMessage);
+            } else if (clientMessage.type === "ICECandidate" || clientMessage.candidate) {
+                handleICECandidate(clientMessage);
+            } else {
+                console.log("unknown", clientMessage);
+            }
+        };
+
+        socket.onclose = function(event) {
+            if (event.wasClean) {
+                displayMessage("Connection closed cleanly.");
+            } else {
+                displayMessage("Connection abruptly closed.");
+            }
+        };
+
+        socket.onerror = function(error) {
+            displayMessage("WebSocket error: " + error.message);
+        };
+
+        function handleSDPAnswer(sdpAnswer) {
+            
+            pc.setRemoteDescription(sdpAnswer)
+                .then(() => {
+                    console.log("Remote SDP Answer set successfully.");
+                })
+                .catch(error => {
+                    console.error("Error setting remote SDP Answer:", error);
+                });
+        }
+
+        function handleICECandidate(iceCandidate) {
+            
+            pc.addIceCandidate(iceCandidate)
+                .then(() => {
+                    console.log("REMOTE ICE candidate added successfully.");
+                })
+                .catch(error => {
+                    console.error("Error adding REMOTE ICE candidate:", error);
+                });
+        }
+
+        const userId = () => {
+            return BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
+        };
+
+        function sendMessage() {
+            const messageInput = document.getElementById("messageInput");
+            const message = messageInput.value;
+            if (message.trim() !== "") {
+                //socket.send(message);
+                messageInput.value = "";
+            }
+        }
+
+        function displayMessage(message) {
+            const messagesDiv = document.getElementById("messages");
+            const messageElement = document.createElement("p");
+            messageElement.textContent = message;
+            messagesDiv.appendChild(messageElement);
+        }
+
+        window.onload = function() {
+            var url = window.location.href;
+            var parts = url.split('/view/');
+            if (parts.length === 2) {
+                sourceStreamID = parts[1];
+            } else {
+                console.error("Invalid stream URL format");
+            }
+        };
+
+    </script>
+</body>
+</html>

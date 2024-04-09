@@ -78,6 +78,7 @@ func (s *Signaling) handleWs(w http.ResponseWriter, r *http.Request) {
 	//signal subscripes to listen sdp answer
 	subject := "to.client.a.send.sdp.answer"
 	sub, err := s.nat.Subscribe(subject, func(msg *nats.Msg) {
+		log.Printf("subscribe -> %s", subject)
 		s.ForwardAnswer(conn, msg)
 	})
 	if err != nil {
@@ -121,79 +122,6 @@ func (s *Signaling) handleWs(w http.ResponseWriter, r *http.Request) {
 		default:
 			panic("Unknown message")
 		}
-	}
-
-	s.activeConnectionsMutex.Lock()
-	delete(s.activeConnections, conn)
-	s.activeConnectionsMutex.Unlock()
-}
-
-func (s *Signaling) handleWsOld(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer conn.Close()
-
-	s.activeConnectionsMutex.Lock()
-	s.activeConnections[conn] = true
-	s.activeConnectionsMutex.Unlock()
-
-	defer delete(s.activeConnections, conn)
-
-	//signal subscripes to listen sdp answer
-	subject := "to.client.a.send.sdp.answer"
-	sub, err := s.nat.Subscribe(subject, func(msg *nats.Msg) {
-		s.ForwardAnswer(conn, msg)
-	})
-	if err != nil {
-		log.Printf("unable to create subscription %s : %s", subject, err)
-	}
-	defer sub.Unsubscribe()
-
-	//signal subscripes to listen candidate
-	subject = "to.client.a.send.candidate"
-	sub, err = s.nat.Subscribe(subject, func(msg *nats.Msg) {
-		fmt.Printf("ice received : %+v", string(msg.Data))
-		s.ForwardCandidate(conn, msg)
-	})
-	if err != nil {
-		log.Printf("unable to create subscription %s : %s", subject, err)
-	}
-	defer sub.Unsubscribe()
-
-	for {
-
-		var clientMsg ClientMessage
-
-		_, msg, err := conn.ReadMessage()
-		if err != nil {
-			log.Println(err)
-			break
-		}
-
-		if err := json.Unmarshal(msg, &clientMsg); err != nil {
-			log.Println("Error unmarshalling client message:", err)
-			continue
-		}
-
-		switch clientMsg.Type {
-		case "sdp":
-			sdp := clientMsg.Sdp
-			//log.Printf("Received message of type '%s' %s ", clientMsg.Type, sdp.SDP)
-
-			s.ClientSendSdpOffer(sdp)
-		case "candidate":
-			candidate := clientMsg.Candidate
-			//log.Printf("Received message of type '%s' %+v ", clientMsg.Type, candidate)
-
-			s.ClientSendCandidate(candidate)
-		}
-
-		// Now you have access to clientMsg.Type and clientMsg.Msg
-		//log.Printf("Received message of type '%s' %v %v", clientMsg.Type, clientMsg.sndidate, clientMsg.sdp)
-
 	}
 
 	s.activeConnectionsMutex.Lock()

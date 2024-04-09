@@ -69,23 +69,33 @@ func main() {
 	}
 	n.outputTrack = outputTrack
 
-	//router subscripes to listen sdp offer
+	// Router subscribes to listen for SDP offers
 	subject := "to.router.a.add.sdp"
 	sub, err := n.nat.Subscribe(subject, func(msg *nats.Msg) {
-		n.AddSdp(msg)
+		go func() {
+			n.AddSdp(msg)
+			if err := msg.Respond(nil); err != nil {
+				log.Printf("Error responding to message: %s", err)
+			}
+		}()
 	})
 	if err != nil {
-		log.Printf("unable to create subscription %s : %s", subject, err)
+		log.Printf("Unable to create subscription %s: %s", subject, err)
 	}
 	defer sub.Unsubscribe()
 
-	//router subscripes to listen sdp offer
+	// Router subscribes to listen for ICE candidates
 	subject = "to.router.a.add.candidate"
 	sub, err = n.nat.Subscribe(subject, func(msg *nats.Msg) {
-		n.AddCandidate(msg)
+		go func() {
+			n.AddCandidate(msg)
+			if err := msg.Respond(nil); err != nil {
+				log.Printf("Error responding to message: %s", err)
+			}
+		}()
 	})
 	if err != nil {
-		log.Printf("unable to create subscription %s : %s", subject, err)
+		log.Printf("Unable to create subscription %s: %s", subject, err)
 	}
 	defer sub.Unsubscribe()
 
@@ -132,6 +142,66 @@ func (n *RouterNode) AddCandidate(msg *nats.Msg) {
 }
 
 func (n *RouterNode) AddSdp(msg *nats.Msg) {
+	sdp := webrtc.SessionDescription{}
+
+	err := json.Unmarshal(msg.Data, &sdp)
+	if err != nil {
+		log.Printf("Error unmarshal %s", err)
+		return // Terminate processing if unmarshal fails
+	}
+
+	if err := n.peerConnection.SetRemoteDescription(sdp); err != nil {
+		panic(err)
+	}
+
+	// Create an answer to send to the other process
+	answer, err := n.peerConnection.CreateAnswer(nil)
+	if err != nil {
+		panic(err)
+	}
+
+	// Sets the LocalDescription, and starts our UDP listeners
+	if err := n.peerConnection.SetLocalDescription(answer); err != nil {
+		panic(err)
+	}
+
+	// Send the answer to signaling -> web client
+	payload, err := json.Marshal(answer)
+	if err != nil {
+		panic(err)
+	}
+
+	subject := "to.client.a.send.sdp.answer"
+	if err := n.nat.Publish(subject, payload); err != nil {
+		log.Printf("Error publishing subject %s: %s", subject, err)
+		// Handle error
+	}
+
+	// Send pending candidates only if there are any
+	n.candidatesMux.Lock()
+	defer n.candidatesMux.Unlock() // Ensure mutex is unlocked after the loop
+
+	if len(n.pendingCandidates) > 0 {
+		subject = "to.client.a.send.candidate"
+		for _, c := range n.pendingCandidates {
+			log.Println("send pending candidate")
+			payload, err := json.Marshal(c)
+			if err != nil {
+				log.Printf("Error%s", err)
+				continue // Continue to the next candidate if marshal fails
+			}
+
+			if err := n.nat.Publish(subject, payload); err != nil {
+				log.Printf("Error publishing subject %s: %s", subject, err)
+				// Handle error
+			}
+		}
+	}
+
+	log.Println("AddSdp process completed")
+}
+
+func (n *RouterNode) AddSdpOld(msg *nats.Msg) {
 	sdp := webrtc.SessionDescription{}
 
 	err := json.Unmarshal(msg.Data, &sdp)

@@ -9,8 +9,6 @@ import (
 	"sync"
 
 	"github.com/nats-io/nats.go"
-	"github.com/pion/interceptor"
-	"github.com/pion/interceptor/pkg/intervalpli"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -108,7 +106,9 @@ func (n *RouterNode) AddCandidate(msg *nats.Msg) {
 	//* important
 	desc := n.peerConnection.RemoteDescription()
 	if desc == nil {
+		n.remoteCandidatesMux.Lock()
 		n.remotePendingCandidates = append(n.remotePendingCandidates, candidate)
+		n.remoteCandidatesMux.Unlock()
 		return
 	}
 
@@ -171,27 +171,6 @@ func (n *RouterNode) AddSdp(msg *nats.Msg) {
 		// Handle error
 	}
 
-	// Send pending candidates only if there are any
-	n.candidatesMux.Lock()
-	defer n.candidatesMux.Unlock() // Ensure mutex is unlocked after the loop
-
-	if len(n.pendingCandidates) > 0 {
-		subject = "to.client.a.send.candidate"
-		for _, c := range n.pendingCandidates {
-			log.Println("send pending candidate")
-			payload, err := json.Marshal(c)
-			if err != nil {
-				log.Printf("Error%s", err)
-				continue // Continue to the next candidate if marshal fails
-			}
-
-			if err := n.nat.Publish(subject, payload); err != nil {
-				log.Printf("Error publishing subject %s: %s", subject, err)
-				// Handle error
-			}
-		}
-	}
-
 	log.Println("AddSdp process completed")
 }
 
@@ -204,6 +183,7 @@ func (n *RouterNode) NatCon() {
 	nc, err := nats.Connect(url)
 	if err != nil {
 		log.Printf("Error: unbale to connect to NATS server %v", err)
+		os.Exit(0)
 	}
 
 	log.Printf("Connected to NATS server at %s", url)
@@ -215,51 +195,10 @@ func (n *RouterNode) NatCon() {
 }
 
 func (n *RouterNode) PeerConnection() {
-	m := &webrtc.MediaEngine{}
-
-	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000, Channels: 0, SDPFmtpLine: "", RTCPFeedback: nil},
-		PayloadType:        96,
-	}, webrtc.RTPCodecTypeVideo); err != nil {
-		panic(err)
-	}
-
-	i := &interceptor.Registry{}
-
-	if err := webrtc.RegisterDefaultInterceptors(m, i); err != nil {
-		panic(err)
-	}
-
-	intervalPliFactory, err := intervalpli.NewReceiverInterceptor()
+	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
 		panic(err)
 	}
-	i.Add(intervalPliFactory)
-
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
-
-	config := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
-			{
-				URLs:       []string{"turn:turn.webrtcwire.online"},
-				Username:   "webrtcwire",
-				Credential: "yellowgreen",
-			},
-		},
-	}
-
-	peerConnection, err := api.NewPeerConnection(config)
-	if err != nil {
-		panic(err)
-	}
-	// defer func() {
-	// 	if cErr := peerConnection.Close(); cErr != nil {
-	// 		fmt.Printf("cannot close peerConnection: %v\n", cErr)
-	// 	}
-	// }()
 
 	n.peerConnection = peerConnection
 }
@@ -301,7 +240,7 @@ func (n *RouterNode) onIceCandidate(c *webrtc.ICECandidate) {
 	if desc == nil {
 		n.pendingCandidates = append(n.pendingCandidates, c)
 	} else {
-		payload, err := json.Marshal(c)
+		payload, err := json.Marshal(c.ToJSON())
 		if err != nil {
 			log.Printf("Error%s", err)
 		}

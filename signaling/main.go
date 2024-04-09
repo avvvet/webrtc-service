@@ -209,6 +209,7 @@ func (s *Signaling) NatCon() {
 	nc, err := nats.Connect(url)
 	if err != nil {
 		log.Printf("Error: unbale to connect to NATS server %v", err)
+		os.Exit(0)
 	}
 
 	log.Printf("Connected to NATS server at %s", url)

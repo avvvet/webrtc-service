@@ -76,6 +76,87 @@ func (s *Signaling) handleWs(w http.ResponseWriter, r *http.Request) {
 
 	defer delete(s.activeConnections, conn)
 
+	// Create channels to signal completion of subscription callbacks
+	doneCh := make(chan struct{}, 2)
+
+	// Subscribe to listen for SDP answer
+	go func() {
+		subject := "to.client.a.send.sdp.answer"
+		sub, err := s.nat.Subscribe(subject, func(msg *nats.Msg) {
+			log.Printf("subscribe --------------------> %s/n", subject)
+			s.ForwardAnswer(conn, msg)
+			doneCh <- struct{}{} // Signal completion
+		})
+		if err != nil {
+			log.Printf("unable to create subscription %s : %s", subject, err)
+		}
+		defer sub.Unsubscribe()
+		<-doneCh // Wait for completion
+	}()
+
+	// Subscribe to listen for ICE candidate
+	go func() {
+		subject := "to.client.a.send.candidate"
+		sub, err := s.nat.Subscribe(subject, func(msg *nats.Msg) {
+			fmt.Printf("ice received : %+v", string(msg.Data))
+			s.ForwardCandidate(conn, msg)
+			doneCh <- struct{}{} // Signal completion
+		})
+		if err != nil {
+			log.Printf("unable to create subscription %s : %s", subject, err)
+		}
+		defer sub.Unsubscribe()
+		<-doneCh // Wait for completion
+	}()
+
+	// Read messages from WebSocket connection
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			log.Println(err)
+			break
+		}
+
+		// Unmarshal each inbound WebSocket message
+		var (
+			candidate webrtc.ICECandidateInit
+			offer     webrtc.SessionDescription
+		)
+
+		switch {
+		// Attempt to unmarshal as a SessionDescription. If the SDP field is empty
+		// assume it is not one.
+		case json.Unmarshal(msg, &offer) == nil && offer.SDP != "":
+			// Send SDP
+			s.ClientSendSdpOffer(offer)
+		case json.Unmarshal(msg, &candidate) == nil && candidate.Candidate != "":
+			// Send ICE
+			s.ClientSendCandidate(candidate)
+		default:
+			panic("Unknown message")
+		}
+	}
+
+	s.activeConnectionsMutex.Lock()
+	delete(s.activeConnections, conn)
+	s.activeConnectionsMutex.Unlock()
+}
+
+func (s *Signaling) handleWsOld(w http.ResponseWriter, r *http.Request) {
+	log.Println(">>>>>>>>>>>>>>>> need to be called once ")
+	conn, err := s.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer conn.Close()
+
+	s.activeConnectionsMutex.Lock()
+	s.activeConnections[conn] = true
+	s.activeConnectionsMutex.Unlock()
+
+	defer delete(s.activeConnections, conn)
+
 	//signal subscripes to listen sdp answer
 	subject := "to.client.a.send.sdp.answer"
 	sub, err := s.nat.Subscribe(subject, func(msg *nats.Msg) {
